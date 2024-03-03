@@ -1,0 +1,50 @@
+name: Windows.Forensics.ADTimeline
+description: |
+  Runs ADTimeline from ANSSI-FR: "Timeline of Active Directory changes 
+  with replication metadata"
+  https://github.com/ANSSI-FR/ADTimeline
+
+author: Jannik Stuckstätte - @einwickler
+
+type: CLIENT
+
+tools:
+  - name: ADTimeline
+    url: https://github.com/ANSSI-FR/ADTimeline/archive/refs/heads/master.zip
+
+precondition: SELECT OS From info() where OS = 'windows'
+
+sources:
+    - name: Timeline
+      query: |
+        LET WorkDir <= tempdir(remove_last='Y')
+    
+        LET Toolzip <= SELECT FullPath
+        FROM Artifact.Generic.Utils.FetchBinary(ToolName="ADTimeline",
+                                                 IsExecutable=FALSE)
+           
+        LET _ <= SELECT *
+        FROM unzip(filename=Toolzip.FullPath, output_directory=WorkDir)
+           
+        LET ADTimelineScript <= path_join(
+            components=[WorkDir, 'ADTimeline-master', 'ADTimeline.ps1'],
+            path_type='windows')
+           
+        LET _ <= SELECT * FROM execve(
+            argv=['powershell', '-ExecutionPolicy', 'Bypass', '-NoProfile', 
+            '-Command',
+            'Set-Location "' + WorkDir + '"; ' + '.\\ADTimeline-master\\ADTimeline.ps1'])
+        
+        LET TimelineFiles <= SELECT OSPath FROM glob(globs="timeline_*.csv", 
+            root=WorkDir)
+           
+        SELECT *, upload(file=TimelineFiles[0].OSPath) AS Upload 
+            FROM parse_csv(filename=TimelineFiles[0].OSPath, separator=';')
+
+    - name: ADobjects
+      query: |
+        LET ADobjectsFiles <= SELECT OSPath FROM glob(globs="ADobjects_*.xml", 
+            root=WorkDir)
+        
+        SELECT parse_xml(file=ADobjectsFiles[0].OSPath) AS ADobjects, upload(file=ADobjectsFiles[0].OSPath) AS Upload 
+        FROM scope()
