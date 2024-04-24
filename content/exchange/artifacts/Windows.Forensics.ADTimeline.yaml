@@ -1,4 +1,4 @@
-name: Windows.Forensics.ADTimeline
+name: Windows.Forensics.AD.ADTimeline
 description: |
   Runs ADTimeline from ANSSI-FR: "Timeline of Active Directory changes 
   with replication metadata"
@@ -30,16 +30,45 @@ sources:
             components=[WorkDir, 'ADTimeline-master', 'ADTimeline.ps1'],
             path_type='windows')
            
-        LET _ <= SELECT * FROM execve(
+        LET ExecOut <= SELECT * FROM execve(
             argv=['powershell', '-ExecutionPolicy', 'Bypass', '-NoProfile', 
             '-Command',
-            'Set-Location "' + WorkDir + '"; ' + '.\\ADTimeline-master\\ADTimeline.ps1'])
+            'Set-Location "' + WorkDir + '"; ' + '.\\ADTimeline-master\\ADTimeline.ps1'],
+            sep="\n")
+            
+        
+        LET _ <= SELECT * FROM scope()
+            where log(message="Script Stdout:")
+        
+        LET _ <= SELECT * FROM ExecOut
+            WHERE log(message=Stdout)
+            
+        LET _ <= SELECT * FROM scope()
+            where log(message="Script Stderr:")
+    
+        LET _ <= SELECT * FROM ExecOut
+            WHERE log(message=Stderr)
+            
+        LET LogFiles <= SELECT *, upload(file=OSPath) FROM glob(globs="logfile_*.log", 
+            root=WorkDir)
+            
+        LET LogFileContent <= read_file(filename=LogFiles[0].OSPath, 
+            length=atoi(string=LogFiles[0].Size))
+            
+        LET _ <= SELECT * FROM scope()
+            where log(message="Logfile output:")
+        
+        LET _ <= SELECT _value as Line 
+            FROM foreach(row=split(string=LogFileContent, sep="\n"))
+            WHERE log(message=Line)
         
         LET TimelineFiles <= SELECT OSPath FROM glob(globs="timeline_*.csv", 
             root=WorkDir)
            
         SELECT *, upload(file=TimelineFiles[0].OSPath) AS Upload 
             FROM parse_csv(filename=TimelineFiles[0].OSPath, separator=';')
+            
+        
 
     - name: ADobjects
       query: |
