@@ -1,4 +1,4 @@
-name: Windows.Forensics.AD.ADTimeline
+name: Windows.ActiveDirectory.ADTimeline
 description: |
   Runs ADTimeline from ANSSI-FR: "Timeline of Active Directory changes 
   with replication metadata"
@@ -12,7 +12,16 @@ tools:
   - name: ADTimeline
     url: https://github.com/ANSSI-FR/ADTimeline/archive/refs/heads/master.zip
 
-precondition: SELECT OS From info() where OS = 'windows'
+precondition: |
+    SELECT * From foreach(row={
+        SELECT OS FROM info() 
+        WHERE OS = 'windows'
+    }, query={
+        SELECT OS, `Computer Info`.DomainRole AS Role
+        FROM Artifact.Generic.Client.Info()
+        WHERE _Source = 'Generic.Client.Info/WindowsInfo'
+        AND Role =~ 'Domain Controller'
+    })     
 
 sources:
     - name: Timeline
@@ -38,13 +47,12 @@ sources:
             
         
         LET _ <= SELECT * FROM scope()
-            where log(message="Script Stdout:")
+            where log(message="ADTimeline Stdout:")
         
         LET _ <= SELECT * FROM ExecOut
             WHERE log(message=Stdout)
             
-        LET _ <= SELECT * FROM scope()
-            where log(message="Script Stderr:")
+        LET _ <= log(message="ADTimeline Stderr:")
     
         LET _ <= SELECT * FROM ExecOut
             WHERE log(message=Stderr)
@@ -62,18 +70,10 @@ sources:
             FROM foreach(row=split(string=LogFileContent, sep="\n"))
             WHERE log(message=Line)
         
-        LET TimelineFiles <= SELECT OSPath FROM glob(globs="timeline_*.csv", 
-            root=WorkDir)
+        LET TimelineFiles <= SELECT OSPath, upload(file=OSPath) AS Upload
+            FROM glob(globs="timeline_*.csv", root=WorkDir)
+        
+        LET _ <= SELECT OSPath, upload(file=OSPath) AS Upload
+            FROM glob(globs="*ADobjects_*.xml", root=WorkDir)
            
-        SELECT *, upload(file=TimelineFiles[0].OSPath) AS Upload 
-            FROM parse_csv(filename=TimelineFiles[0].OSPath, separator=';')
-            
-        
-
-    - name: ADobjects
-      query: |
-        LET ADobjectsFiles <= SELECT OSPath FROM glob(globs="ADobjects_*.xml", 
-            root=WorkDir)
-        
-        SELECT parse_xml(file=ADobjectsFiles[0].OSPath) AS ADobjects, upload(file=ADobjectsFiles[0].OSPath) AS Upload 
-        FROM scope()
+        SELECT * FROM parse_csv(filename=TimelineFiles[0].OSPath, separator=';')
